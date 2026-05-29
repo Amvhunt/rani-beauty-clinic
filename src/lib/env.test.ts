@@ -37,6 +37,18 @@ describe('env validation', () => {
     expect(mod.env.AIRTABLE_BASE_ID).toBe('app123');
   });
 
+  it('succeeds when Supabase is configured instead of Airtable', async () => {
+    vi.stubEnv('AIRTABLE_PAT', '');
+    vi.stubEnv('AIRTABLE_BASE_ID', '');
+    vi.stubEnv('SUPABASE_URL', 'https://test.supabase.co');
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service_role_test');
+    vi.stubEnv('DASHBOARD_JWT_SECRET', 'supersecret');
+
+    const mod = await import('./env');
+    expect(mod.env.SUPABASE_URL).toBe('https://test.supabase.co');
+    expect(mod.env.SUPABASE_SERVICE_ROLE_KEY).toBe('service_role_test');
+  });
+
   it('defaults optional vars to empty strings', async () => {
     Object.entries(REQUIRED).forEach(([k, v]) => vi.stubEnv(k, v));
 

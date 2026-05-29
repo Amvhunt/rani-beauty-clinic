@@ -9,83 +9,93 @@ import { z } from 'zod';
 
 /* ── Schema ─────────────────────────────────────────────────── */
 
-const envSchema = z.object({
-  // Required - app won't function without these
-  AIRTABLE_PAT: z.string().min(1, 'AIRTABLE_PAT is required'),
-  AIRTABLE_BASE_ID: z.string().min(1, 'AIRTABLE_BASE_ID is required'),
-  DASHBOARD_JWT_SECRET: z.string().min(1, 'DASHBOARD_JWT_SECRET is required'),
+const envBaseSchema = z.object({
+    // Database credentials - either Airtable or Supabase must be configured
+    AIRTABLE_PAT: z.string().optional().default(''),
+    AIRTABLE_BASE_ID: z.string().optional().default(''),
+    SUPABASE_URL: z.string().optional().default(''),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(''),
+    DASHBOARD_JWT_SECRET: z.string().min(1, 'DASHBOARD_JWT_SECRET is required'),
 
-  // Required for AI features
-  ANTHROPIC_API_KEY: z.string().optional().default(''),
+    // Required for AI features
+    ANTHROPIC_API_KEY: z.string().optional().default(''),
 
-  // Email
-  RESEND_API_KEY: z.string().optional().default(''),
-  CONTACT_EMAIL: z.string().optional().default('info@ranibeautyclinic.com'),
-  FROM_EMAIL: z
-    .string()
-    .optional()
-    .default('Rani Beauty Clinic <noreply@ranibeautyclinic.com>'),
+    // Email
+    RESEND_API_KEY: z.string().optional().default(''),
+    CONTACT_EMAIL: z.string().optional().default('info@ranibeautyclinic.com'),
+    FROM_EMAIL: z
+      .string()
+      .optional()
+      .default('Rani Beauty Clinic <noreply@ranibeautyclinic.com>'),
 
-  // SMS (Twilio)
-  TWILIO_ACCOUNT_SID: z.string().optional().default(''),
-  TWILIO_AUTH_TOKEN: z.string().optional().default(''),
-  TWILIO_FROM_NUMBER: z.string().optional().default(''),
+    // SMS (Twilio)
+    TWILIO_ACCOUNT_SID: z.string().optional().default(''),
+    TWILIO_AUTH_TOKEN: z.string().optional().default(''),
+    TWILIO_FROM_NUMBER: z.string().optional().default(''),
 
-  // Payments
-  STRIPE_SECRET_KEY: z.string().optional().default(''),
-  STRIPE_WEBHOOK_SECRET: z.string().optional().default(''),
-  CHERRY_API_KEY: z.string().optional().default(''),
-  CHERRY_WEBHOOK_SECRET: z.string().optional().default(''),
-  PATIENTFI_API_KEY: z.string().optional().default(''),
-  PATIENTFI_WEBHOOK_SECRET: z.string().optional().default(''),
+    // Payments
+    STRIPE_SECRET_KEY: z.string().optional().default(''),
+    STRIPE_WEBHOOK_SECRET: z.string().optional().default(''),
+    CHERRY_API_KEY: z.string().optional().default(''),
+    CHERRY_WEBHOOK_SECRET: z.string().optional().default(''),
+    PATIENTFI_API_KEY: z.string().optional().default(''),
+    PATIENTFI_WEBHOOK_SECRET: z.string().optional().default(''),
 
-  // Booking (webhook-only — Mangomint has no public API)
-  MANGOMINT_WEBHOOK_SECRET: z.string().optional().default(''),
+    // Booking (webhook-only — Mangomint has no public API)
+    MANGOMINT_WEBHOOK_SECRET: z.string().optional().default(''),
 
-  // Automation
-  N8N_WEBHOOK_URL: z.string().optional().default(''),
+    // Automation
+    N8N_WEBHOOK_URL: z.string().optional().default(''),
 
-  // Banking
-  PLAID_CLIENT_ID: z.string().optional().default(''),
-  PLAID_SECRET: z.string().optional().default(''),
-  PLAID_ENV: z.string().optional().default('sandbox'),
+    // Banking
+    PLAID_CLIENT_ID: z.string().optional().default(''),
+    PLAID_SECRET: z.string().optional().default(''),
+    PLAID_ENV: z.string().optional().default('sandbox'),
 
-  // Vector DB / Embeddings
-  PINECONE_API_KEY: z.string().optional().default(''),
-  VOYAGE_API_KEY: z.string().optional().default(''),
-  OPENAI_API_KEY: z.string().optional().default(''),
+    // Vector DB / Embeddings
+    PINECONE_API_KEY: z.string().optional().default(''),
+    VOYAGE_API_KEY: z.string().optional().default(''),
+    OPENAI_API_KEY: z.string().optional().default(''),
 
-  // Voice AI
-  VAPI_API_KEY: z.string().optional().default(''),
-  VAPI_ASSISTANT_ID: z.string().optional().default(''),
-  ELEVENLABS_VOICE_ID: z.string().optional().default(''),
+    // Voice AI
+    VAPI_API_KEY: z.string().optional().default(''),
+    VAPI_ASSISTANT_ID: z.string().optional().default(''),
+    ELEVENLABS_VOICE_ID: z.string().optional().default(''),
 
-  // Ads
-  META_ACCESS_TOKEN: z.string().optional().default(''),
-  META_AD_ACCOUNT_ID: z.string().optional().default(''),
+    // Ads
+    META_ACCESS_TOKEN: z.string().optional().default(''),
+    META_AD_ACCOUNT_ID: z.string().optional().default(''),
 
-  // Integrations
-  SQUARE_ACCESS_TOKEN: z.string().optional().default(''),
-  JOTFORM_API_KEY: z.string().optional().default(''),
+    // Integrations
+    SQUARE_ACCESS_TOKEN: z.string().optional().default(''),
+    JOTFORM_API_KEY: z.string().optional().default(''),
 
-  // WordPress
-  WORDPRESS_ORIGIN: z.string().optional().default(''),
+    // WordPress
+    WORDPRESS_ORIGIN: z.string().optional().default(''),
 
-  // Dashboard users JSON
-  DASHBOARD_USERS: z.string().optional().default('{}'),
+    // Dashboard users JSON
+    DASHBOARD_USERS: z.string().optional().default('{}'),
 
-  // Security / Automation secrets
-  CRON_SECRET: z.string().optional().default(''),
-  N8N_API_KEY: z.string().optional().default(''),
+    // Security / Automation secrets
+    CRON_SECRET: z.string().optional().default(''),
+    N8N_API_KEY: z.string().optional().default(''),
 
-  // Public runtime URLs / request policy
-  NEXT_PUBLIC_BASE_URL: z.string().optional().default('https://www.ranibeautyclinic.com'),
-  NEXT_PUBLIC_SITE_URL: z.string().optional().default('https://ranibeautyclinic.com'),
-  CORS_ALLOWED_ORIGINS: z.string().optional().default(''),
+    // Public runtime URLs / request policy
+    NEXT_PUBLIC_BASE_URL: z.string().optional().default('https://www.ranibeautyclinic.com'),
+    NEXT_PUBLIC_SITE_URL: z.string().optional().default('https://ranibeautyclinic.com'),
+    CORS_ALLOWED_ORIGINS: z.string().optional().default(''),
 
-  // External services
-  REPLICATE_API_TOKEN: z.string().optional().default(''),
-  HTML2PDF_API_KEY: z.string().optional().default(''),
+    // External services
+    REPLICATE_API_TOKEN: z.string().optional().default(''),
+    HTML2PDF_API_KEY: z.string().optional().default(''),
+  });
+
+const envSchema = envBaseSchema.refine((data) => {
+  const hasAirtable = Boolean(data.AIRTABLE_PAT && data.AIRTABLE_BASE_ID);
+  const hasSupabase = Boolean(data.SUPABASE_URL && data.SUPABASE_SERVICE_ROLE_KEY);
+  return hasAirtable || hasSupabase;
+}, {
+  message: 'Either Airtable credentials or Supabase URL + SERVICE_ROLE_KEY must be configured',
 });
 
 /* ── Parse & export ─────────────────────────────────────────── */
@@ -99,9 +109,7 @@ const isBuildPhase =
   process.env.NEXT_PHASE === 'phase-production-build' ||
   process.env.npm_lifecycle_event === 'build';
 
-const buildSafeSchema = envSchema.extend({
-  AIRTABLE_PAT: z.string().optional().default(''),
-  AIRTABLE_BASE_ID: z.string().optional().default(''),
+const buildSafeSchema = envBaseSchema.extend({
   DASHBOARD_JWT_SECRET: z.string().optional().default(''),
 });
 
@@ -164,6 +172,7 @@ export const hasFeature = {
   embeddings: () => Boolean(env.VOYAGE_API_KEY || env.OPENAI_API_KEY),
   vapi: () => Boolean(env.VAPI_API_KEY && env.VAPI_ASSISTANT_ID),
   voiceClone: () => Boolean(env.ELEVENLABS_VOICE_ID),
+  supabase: () => Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY),
   metaAds: () => Boolean(env.META_ACCESS_TOKEN && env.META_AD_ACCOUNT_ID),
   n8n: () => Boolean(env.N8N_WEBHOOK_URL),
 } as const;

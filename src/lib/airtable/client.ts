@@ -3,17 +3,25 @@ import { airtableCircuitBreaker, CircuitBreakerError } from './circuit-breaker';
 import { validateRecord } from './schemas';
 import { AirtableCache, airtableCache } from './cache';
 import { writeQueue } from './write-queue';
+import {
+  getSupabaseTable,
+  isSupabaseEnabled,
+  SupabaseTableWrapper,
+  type SelectOptions,
+} from '@/lib/supabase/client';
 
 // Validate env vars at module load time
-if (!process.env.AIRTABLE_PAT) {
-  console.error('[Airtable] AIRTABLE_PAT is missing. Airtable queries will fail.');
+if (!process.env.AIRTABLE_PAT && !process.env.SUPABASE_URL) {
+  console.error('[Airtable] AIRTABLE_PAT is missing. Airtable queries will fail unless SUPABASE_URL is configured.');
 }
-if (!process.env.AIRTABLE_BASE_ID) {
-  console.error('[Airtable] AIRTABLE_BASE_ID is missing. Airtable queries will fail.');
+if (!process.env.AIRTABLE_BASE_ID && !process.env.SUPABASE_URL) {
+  console.error('[Airtable] AIRTABLE_BASE_ID is missing. Airtable queries will fail unless SUPABASE_URL is configured.');
 }
 
 // Lazy-initialized to avoid throwing during Next.js build (env vars unavailable at build time)
 let _base: ReturnType<InstanceType<typeof Airtable>['base']> | null = null;
+
+type DataTable = Airtable.Table<Airtable.FieldSet> | SupabaseTableWrapper;
 
 export function getAirtableBase() {
   if (!_base) {
@@ -24,6 +32,35 @@ export function getAirtableBase() {
   }
   return _base;
 }
+
+function getTable(tableName: string): DataTable {
+  if (isSupabaseEnabled()) {
+    return getSupabaseTable(tableName);
+  }
+  return getAirtableBase()(tableName);
+}
+
+function isSupabaseTable(table: DataTable): table is SupabaseTableWrapper {
+  return table instanceof SupabaseTableWrapper;
+}
+
+export const Tables = {
+  clients: () => getTable('Clients'),
+  appointments: () => getTable('Appointments'),
+  transactions: () => getTable('Transactions'),
+  kpis: () => getTable('KPI Snapshots'),
+  alerts: () => getTable('Alerts'),
+  packages: () => getTable('Packages'),
+  memberships: () => getTable('Memberships'),
+  intakes: () => getTable('Client Intakes'),
+  reviews: () => getTable('Reviews'),
+  messagesLog: () => getTable('Messages Log'),
+  competitorIntel: () => getTable('Competitor Intelligence'),
+  intakeIntelligence: () => getTable('Intake Intelligence'),
+  treatmentPlans: () => getTable('Treatment Plans'),
+  chartNotes: () => getTable('Chart Notes'),
+  rxProgramEnrollments: () => getTable('Rx Program Enrollments'),
+} as const;
 
 // Rate limiting: Airtable allows 5 req/sec per base
 const MAX_QUEUE_SIZE = 100;
@@ -107,24 +144,6 @@ async function drainExecutor(entry: { table: string; recordId?: string; fields: 
   }
 }
 
-export const Tables = {
-  clients: () => getAirtableBase()('Clients'),
-  appointments: () => getAirtableBase()('Appointments'),
-  transactions: () => getAirtableBase()('Transactions'),
-  kpis: () => getAirtableBase()('KPI Snapshots'),
-  alerts: () => getAirtableBase()('Alerts'),
-  packages: () => getAirtableBase()('Packages'),
-  memberships: () => getAirtableBase()('Memberships'),
-  intakes: () => getAirtableBase()('Client Intakes'),
-  reviews: () => getAirtableBase()('Reviews'),
-  messagesLog: () => getAirtableBase()('Messages Log'),
-  competitorIntel: () => getAirtableBase()('Competitor Intelligence'),
-  intakeIntelligence: () => getAirtableBase()('Intake Intelligence'),
-  treatmentPlans: () => getAirtableBase()('Treatment Plans'),
-  chartNotes: () => getAirtableBase()('Chart Notes'),
-  rxProgramEnrollments: () => getAirtableBase()('Rx Program Enrollments'),
-} as const;
-
 // Resolve a table accessor key to its Airtable table name
 const TABLE_KEY_TO_NAME: Record<string, string> = {
   clients: 'Clients',
@@ -147,15 +166,17 @@ const TABLE_KEY_TO_NAME: Record<string, string> = {
 /**
  * Resolve table name from a Table object by matching against known table names.
  */
-function resolveTableName(table: Airtable.Table<Airtable.FieldSet>): string {
-  // Airtable Table objects have a `name` property
+function resolveTableName(table: DataTable): string {
+  if (isSupabaseTable(table)) {
+    return table.name;
+  }
   return (table as unknown as { name: string }).name || 'Unknown';
 }
 
 // Helper to fetch all records with pagination
 // skipTestFilter: set true for tables without an "Is Test" field (e.g. Clients, Client Intakes)
 export async function fetchAll<T = Record<string, unknown>>(
-  table: Airtable.Table<Airtable.FieldSet>,
+  table: Airtable.Table<Airtable.FieldSet> | SupabaseTableWrapper,
   options?: Airtable.SelectOptions<Airtable.FieldSet>,
   skipTestFilter?: boolean
 ): Promise<{ id: string; fields: T }[]> {
@@ -166,12 +187,25 @@ export async function fetchAll<T = Record<string, unknown>>(
   const cached = airtableCache.get<{ id: string; fields: T }[]>(cacheKey, tableName);
   if (cached) return cached;
 
-  const records: { id: string; fields: T }[] = [];
   const formula = skipTestFilter
     ? (options?.filterByFormula || '')
     : options?.filterByFormula
       ? `AND(NOT({Is Test}), ${options.filterByFormula})`
       : 'NOT({Is Test})';
+  const selectOptions = {
+    ...options,
+    ...(formula ? { filterByFormula: formula } : {}),
+  } as SelectOptions;
+
+  const records: { id: string; fields: T }[] = [];
+
+  if (isSupabaseTable(table)) {
+    const rows = await table.select(selectOptions).firstPage();
+    const result = rows.map((r) => ({ id: r.id, fields: r.fields as T }));
+    airtableCache.set(cacheKey, tableName, result);
+    return result;
+  }
+
   await rateLimitedQuery(() =>
     new Promise<void>((resolve, reject) => {
       table
@@ -202,7 +236,7 @@ export async function fetchAll<T = Record<string, unknown>>(
 // Helper to fetch first N records
 // skipTestFilter: set true for tables without an "Is Test" field
 export async function fetchFirst<T = Record<string, unknown>>(
-  table: Airtable.Table<Airtable.FieldSet>,
+  table: Airtable.Table<Airtable.FieldSet> | SupabaseTableWrapper,
   maxRecords: number,
   options?: Airtable.SelectOptions<Airtable.FieldSet>,
   skipTestFilter?: boolean
@@ -219,16 +253,24 @@ export async function fetchFirst<T = Record<string, unknown>>(
       ? `AND(NOT({Is Test}), ${options.filterByFormula})`
       : 'NOT({Is Test})';
 
-  const result = await rateLimitedQuery(async () => {
-    const records = await table
-      .select({
-        maxRecords,
-        ...options,
-        ...(formula ? { filterByFormula: formula } : {}),
-      })
-      .firstPage();
-    return records.map((r) => ({ id: r.id, fields: r.fields as unknown as T }));
-  });
+  const selectOptions = {
+    maxRecords,
+    ...options,
+    ...(formula ? { filterByFormula: formula } : {}),
+  } as SelectOptions;
+
+  const result = isSupabaseTable(table)
+    ? (await table.select(selectOptions).firstPage()).map((r) => ({ id: r.id, fields: r.fields as T }))
+    : await rateLimitedQuery(async () => {
+        const records = await table
+          .select({
+            maxRecords,
+            ...options,
+            ...(formula ? { filterByFormula: formula } : {}),
+          })
+          .firstPage();
+        return records.map((r) => ({ id: r.id, fields: r.fields as unknown as T }));
+      });
 
   airtableCache.set(cacheKey, tableName, result);
   return result;
@@ -236,7 +278,7 @@ export async function fetchFirst<T = Record<string, unknown>>(
 
 // Helper to create a record (with validation and write-queue fallback)
 export async function createRecord<T = Record<string, unknown>>(
-  table: Airtable.Table<Airtable.FieldSet>,
+  table: DataTable,
   fields: Partial<T>
 ): Promise<string> {
   const tableName = resolveTableName(table);
@@ -252,14 +294,20 @@ export async function createRecord<T = Record<string, unknown>>(
   }
 
   try {
-    const id = await rateLimitedQuery(async () => {
-      const record = await table.create(fields as Partial<Airtable.FieldSet>);
-      return record.id;
-    });
+    const result = isSupabaseTable(table)
+      ? await table.create(fields as Partial<Record<string, unknown>>)
+      : await rateLimitedQuery(async () => {
+          const record = await table.create(fields as Partial<Airtable.FieldSet>);
+          return record.id;
+        });
+
+    const recordId = isSupabaseTable(table)
+      ? (result as { id: string }).id
+      : (result as string);
 
     // Invalidate cache for this table on successful write
     airtableCache.invalidateTable(tableName);
-    return id;
+    return recordId;
   } catch (err) {
     // Queue the failed write for retry if it's a transient error
     if (err instanceof CircuitBreakerError || isTransientError(err)) {
@@ -276,7 +324,7 @@ export async function createRecord<T = Record<string, unknown>>(
 
 // Helper to update a record (with validation and write-queue fallback)
 export async function updateRecord<T = Record<string, unknown>>(
-  table: Airtable.Table<Airtable.FieldSet>,
+  table: DataTable,
   recordId: string,
   fields: Partial<T>
 ): Promise<void> {
@@ -292,9 +340,13 @@ export async function updateRecord<T = Record<string, unknown>>(
   }
 
   try {
-    await rateLimitedQuery(async () => {
-      await table.update(recordId, fields as Partial<Airtable.FieldSet>);
-    });
+    if (isSupabaseTable(table)) {
+      await table.update(recordId, fields as Record<string, unknown>);
+    } else {
+      await rateLimitedQuery(async () => {
+        await table.update(recordId, fields as Partial<Airtable.FieldSet>);
+      });
+    }
 
     // Invalidate cache for this table on successful write
     airtableCache.invalidateTable(tableName);
